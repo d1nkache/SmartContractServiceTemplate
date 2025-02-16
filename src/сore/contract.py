@@ -1,52 +1,73 @@
 import base64
 
-from model.atd.wallet import AdminWallet
-from model.schemas import AbstractMessage, SendBocSchema
-from model.mappers import as_init_data
+from сore.wallet import AdminWallet
+
 from model.mappers import StateInit
+from model.mappers import as_init_data
+from model.schemas import AbstractMessage, SendBocSchema
 
 from utils.getters import get_smart_contract_address
 
-from pytoniq import LiteClient, WalletV4R2
+from pytoniq import LiteClient, WalletV4R2, Cell
 from pytoniq import StateInit as PytoniqStateInit
 
-class Counter:
 
-    def __init__(self, state_init: StateInit): 
+DEFAULT_AMOUNT = int(0.01 * 10 ** 9)
 
-        self.address = get_smart_contract_address(state_init)
+
+class Contract:
+
+    def __init__(self, state_init: StateInit, address: str): 
+
+        self.address = address
         self.state_init = state_init
 
 
-    async def send_number(self, number: int) -> AbstractMessage:
+    @classmethod
+    async def create(cls, state_init: StateInit):
+
+        address = await get_smart_contract_address(state_init)
+
+        return cls(state_init, address)
+
+
+    async def send_message_to_smart_contract(
+            self, 
+            body: Cell,
+            amount: int = DEFAULT_AMOUNT,
+    ) -> AbstractMessage:
 
         wallet = AdminWallet()
 
         result = await wallet.send_internal_message_via_client(
             destination = self.address,
-            amount = int(0.01 * 10 ** 9),
-            body = await as_init_data(number = number)  # плохо
+            amount = amount,
+            body = body
         )
 
         return result
     
 
-    async def deploy_smart_contract_via_client(self, start_number: int) -> AbstractMessage:
+    async def deploy_smart_contract_via_client(
+            self, 
+            amount: int = DEFAULT_AMOUNT
+    ) -> AbstractMessage:
 
         wallet = AdminWallet()
 
         result = await wallet.send_internal_message_via_client(
             destination = self.address,
-            amount = int(0.01 * 10 ** 9),
-            state_init = StateInit(
-                code = self.state_init.code,
-                data = await as_init_data(number = start_number) # плохо
+            amount = amount,
+            state_init = PytoniqStateInit(
+                    data = self.state_init.data,
+                    code = self.state_init.code
             )
         )
 
         return result
     
 
+    # навряд ли работает - не тестил
     async def deploy_smart_contract_via_tonapi(self, start_number: int) -> AbstractMessage:
 
         wallet = AdminWallet()
@@ -72,7 +93,7 @@ class Counter:
         return result
     
 
-    async def get_number(self) -> int:
+    async def run_get_method(self, method_name: str) -> int:
 
         wallet = AdminWallet()
 
@@ -82,7 +103,7 @@ class Counter:
 
                 pytoniq_wallet = await AdminWallet().as_wallet_v4r2(provider = provider)
                 result = await pytoniq_wallet.run_get_method(
-                    method = "get_total",
+                    method = method_name,
                     stack = []
                 )
                 
@@ -92,7 +113,7 @@ class Counter:
             
             pytoniq_wallet = await AdminWallet().as_wallet_v4r2(provider = provider)
             result = await wallet.run_get_method(
-                method = "get_total",
+                method = method_name,
                 stack = []
             )
             
